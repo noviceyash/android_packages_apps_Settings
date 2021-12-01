@@ -25,6 +25,8 @@ import android.content.pm.PackageManager;
 import android.os.AsyncTask;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.UserHandle;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
@@ -42,6 +44,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 /**
  * Preference controller to allow users to choose an overlay from a list for a given category.
  * The chosen overlay is enabled exclusively within its category. A default option is also
@@ -50,6 +55,12 @@ import java.util.List;
 public class OverlayCategoryPreferenceController extends DeveloperOptionsPreferenceController
         implements Preference.OnPreferenceChangeListener, PreferenceControllerMixin {
     private static final String TAG = "OverlayCategoryPC";
+    private static final String FONT_KEY = "android.theme.customization.font";
+    private static final String ADAPTIVE_ICON_SHAPE_KEY = "android.theme.customization.adaptive_icon_shape";
+    private static final String ICON_PACK_KEY = "android.theme.customization.icon_pack";
+    private static final String SIGNAL_ICON_KEY = "android.theme.customization.signal_icon";
+    private static final String WIFI_ICON_KEY = "android.theme.customization.wifi_icon";
+
     @VisibleForTesting
     static final String PACKAGE_DEVICE_DEFAULT = "package_device_default";
     private static final String OVERLAY_TARGET_PACKAGE = "android";
@@ -57,6 +68,11 @@ public class OverlayCategoryPreferenceController extends DeveloperOptionsPrefere
             Comparator.comparingInt(a -> a.priority);
     private final IOverlayManager mOverlayManager;
     private final boolean mAvailable;
+    private final boolean mIsFonts;
+    private final boolean mIsAdaptiveIconShape;
+    private final boolean mIsIconPack;
+    private final boolean mIsSignalIcon;
+    private final boolean mIsWiFiIcon;
     private final String mCategory;
     private final PackageManager mPackageManager;
 
@@ -70,6 +86,11 @@ public class OverlayCategoryPreferenceController extends DeveloperOptionsPrefere
         mPackageManager = packageManager;
         mCategory = category;
         mAvailable = overlayManager != null && !getOverlayInfos().isEmpty();
+        mIsFonts = FONT_KEY.equals(category);
+        mIsAdaptiveIconShape = ADAPTIVE_ICON_SHAPE_KEY.equals(category);
+        mIsIconPack = ICON_PACK_KEY.equals(category);
+        mIsSignalIcon = SIGNAL_ICON_KEY.equals(category);
+        mIsWiFiIcon = WIFI_ICON_KEY.equals(category);
     }
 
     public OverlayCategoryPreferenceController(Context context, String category) {
@@ -103,17 +124,61 @@ public class OverlayCategoryPreferenceController extends DeveloperOptionsPrefere
         return setOverlay((String) newValue);
     }
 
-    private boolean setOverlay(String packageName) {
-        final String currentPackageName = getOverlayInfos().stream()
-                .filter(info -> info.isEnabled())
-                .map(info -> info.packageName)
-                .findFirst()
-                .orElse(null);
+    private boolean setOverlay(String label) {
+        final List<OverlayInfo> infos = getOverlayInfos();
 
-        if (PACKAGE_DEVICE_DEFAULT.equals(packageName) && TextUtils.isEmpty(currentPackageName)
-                || TextUtils.equals(packageName, currentPackageName)) {
-            // Already set.
-            return true;
+        ArrayList<String> currentPackageNames = new ArrayList<>();;
+        ArrayList<String> currentCategoryNames = new ArrayList<>();;
+        ArrayList<String> packageNames = new ArrayList<>();;
+        ArrayList<String> categoryNames = new ArrayList<>();;
+
+        for (OverlayInfo info : infos) {
+            if (info.isEnabled()) {
+                currentPackageNames.add(info.packageName);
+                currentCategoryNames.add(info.category);
+            }
+            if (label.equals(getPackageLabel(info.packageName))) {
+                packageNames.add(info.packageName);
+                categoryNames.add(info.category);
+            }
+        }
+
+        Log.w(TAG, "setOverlay currentPackageNames=" + currentPackageNames.toString());
+        Log.w(TAG, "setOverlay packageNames=" + packageNames.toString());
+        Log.w(TAG, "setOverlay label=" + label);
+
+        if (mIsFonts || mIsAdaptiveIconShape || mIsIconPack || mIsSignalIcon || mIsWiFiIcon) {
+            // For overlays, we also need to set this setting
+            String value = Settings.Secure.getStringForUser(mContext.getContentResolver(),
+                    Settings.Secure.THEME_CUSTOMIZATION_OVERLAY_PACKAGES, UserHandle.USER_CURRENT);
+            JSONObject json;
+            if (value == null) {
+                json = new JSONObject();
+            } else {
+                try {
+                    json = new JSONObject(value);
+                } catch (JSONException e) {
+                    Log.e(TAG, "Error parsing current settings value:\n" + e.getMessage());
+                    return false;
+                }
+            }
+            // removing all currently enabled overlays from the json
+            for (String categoryName : currentCategoryNames) {
+                json.remove(categoryName);
+            }
+            // adding the new ones
+            for (int i = 0; i < categoryNames.size(); i++) {
+                try {
+                    json.put(categoryNames.get(i), packageNames.get(i));
+                } catch (JSONException e) {
+                    Log.e(TAG, "Error adding new settings value:\n" + e.getMessage());
+                    return false;
+                }
+            }
+            // updating the setting
+            Settings.Secure.putStringForUser(mContext.getContentResolver(),
+                    Settings.Secure.THEME_CUSTOMIZATION_OVERLAY_PACKAGES,
+                    json.toString(), UserHandle.USER_CURRENT);
         }
 
         new AsyncTask<Void, Void, Boolean>() {
