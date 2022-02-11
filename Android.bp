@@ -101,6 +101,7 @@ android_library {
         "Settings-change-ids",
         "SystemUIUnfoldLib",
         "kotlin-stdlib",
+        "faceunlock_framework",
     ],
 
     libs: [
