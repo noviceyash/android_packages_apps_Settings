@@ -98,7 +98,7 @@
         settings:controller="com.android.settings.notification.AlarmVolumePreferenceController"/>
 
     <!-- Link ringtone and notification volumes -->
-    <com.octavi.lab.preferences.SecureSettingSwitchPreference
+    <SwitchPreference
         android:key="volume_link_notification"
         android:title="@string/volume_link_notification_title"
         android:order="-138"
